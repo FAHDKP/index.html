@@ -1,0 +1,218 @@
+<!--
+File: list-randomiser.html
+What this is: a single-file randomiser web app to paste or type names, shuffle them, pick one, copy or download results.
+How to publish on GitHub Pages:
+ 1. Create a new GitHub repository (e.g. "list-randomiser").
+ 2. Add this file as index.html in the repository root.
+ 3. Commit & push to GitHub.
+ 4. In repository Settings -> Pages, select branch 'main' and root '/', then Save. Your site will be available at https://<your-username>.github.io/<repo-name>/ after a few minutes.
+--><!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>List Randomiser — Shuffle & Pick Names</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#60a5fa;--accent-2:#7c3aed}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(180deg,#071022 0%,#051021 100%);color:#e6eef8;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px}
+    .wrap{width:100%;max-width:920px}
+    header{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+    h1{margin:0;font-size:20px}
+    p.lead{margin:0;color:var(--muted);font-size:13px}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:18px}
+    @media(max-width:880px){.grid{grid-template-columns:1fr}}
+    .card{background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border:1px solid rgba(255,255,255,0.04);padding:16px;border-radius:12px}
+    label{display:block;font-size:13px;color:var(--muted);margin-bottom:8px}
+    textarea{width:100%;min-height:220px;padding:12px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit;font-size:14px;resize:vertical}
+    .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+    button{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:10px 12px;border-radius:10px;color:inherit;cursor:pointer;font-weight:600}
+    button.primary{background:linear-gradient(90deg,var(--accent),var(--accent-2));border:0;color:#021025}
+    button.warn{background:#ff7b7b;color:#240000;border:0}
+    .list{max-height:420px;overflow:auto;padding:8px;margin:0;margin-top:8px;border-radius:8px;border:1px dashed rgba(255,255,255,0.03)}
+    .item{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;margin-bottom:6px;background:rgba(255,255,255,0.015)}
+    .item strong{font-weight:700}
+    .picked{animation:glow 900ms ease forwards;border:2px solid rgba(96,165,250,0.18)}
+    @keyframes glow{0%{transform:scale(1);box-shadow:none}50%{transform:scale(1.02);box-shadow:0 8px 30px rgba(124,58,237,0.12)}100%{transform:scale(1);box-shadow:0 12px 40px rgba(96,165,250,0.06)}}
+    .small{font-size:12px;color:var(--muted)}
+    .footer{margin-top:14px;color:var(--muted);font-size:12px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap}
+    .hint{background:rgba(255,255,255,0.02);padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.02)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>List Randomiser</h1>
+        <p class="lead">Paste names (one per line) and shuffle or pick a random name. Perfect for giveaways, team orders, or deciding who goes first.</p>
+      </div>
+    </header><main class="grid">
+  <section class="card">
+    <label for="names">Names (one per line)</label>
+    <textarea id="names" placeholder="e.g.\nAlice\nBob\nCharlie\n..."> </textarea>
+
+    <div class="controls">
+      <button id="btnShuffle" class="primary">Shuffle & Show Order</button>
+      <button id="btnPick">Pick One</button>
+      <button id="btnClear" class="warn">Clear</button>
+      <button id="btnCopy">Copy Results</button>
+      <button id="btnDownload">Download CSV</button>
+    </div>
+
+    <div class="hint" style="margin-top:12px">
+      Tip: You can also separate names with commas. Empty lines are ignored.
+    </div>
+
+    <div class="footer">
+      <div class="small">Built with plain HTML, CSS & JavaScript — drop into index.html and publish using GitHub Pages.</div>
+    </div>
+  </section>
+
+  <aside class="card">
+    <label>Randomised order / Results</label>
+    <div id="resultList" class="list" aria-live="polite">No results yet — shuffle or pick.</div>
+
+    <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+      <button id="btnRotate" title="Re-shuffle current list">Reshuffle Current</button>
+      <button id="btnExportTxt">Export as Text</button>
+    </div>
+
+    <div style="margin-top:12px">
+      <label class="small">Last picked:</label>
+      <div id="lastPicked" class="small">—</div>
+    </div>
+  </aside>
+</main>
+
+  </div><script>
+  // Utilities
+  const $ = id => document.getElementById(id);
+  function parseNames(raw){
+    if(!raw) return [];
+    // split on newlines or commas
+    return raw.split(/\r?\n|,/).map(s=>s.trim()).filter(s=>s.length>0);
+  }
+  function fisherYates(arr){
+    const a = arr.slice();
+    for(let i=a.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [a[i],a[j]] = [a[j],a[i]];
+    }
+    return a;
+  }
+
+  // DOM elements
+  const namesTa = $('names');
+  const btnShuffle = $('btnShuffle');
+  const btnPick = $('btnPick');
+  const btnClear = $('btnClear');
+  const btnCopy = $('btnCopy');
+  const btnDownload = $('btnDownload');
+  const resultList = $('resultList');
+  const lastPicked = $('lastPicked');
+  const btnRotate = $('btnRotate');
+  const btnExportTxt = $('btnExportTxt');
+
+  // State
+  let currentOrder = [];
+
+  function renderList(list, highlightIndex = -1){
+    if(!list || list.length===0){
+      resultList.innerHTML = '<div class="small">No results yet — shuffle or pick.</div>';
+      return;
+    }
+    resultList.innerHTML = '';
+    list.forEach((name, i)=>{
+      const el = document.createElement('div');
+      el.className = 'item' + (i===highlightIndex ? ' picked' : '');
+      el.innerHTML = `<div><strong>${escapeHtml(name)}</strong><div class="small">#${i+1}</div></div>`;
+      resultList.appendChild(el);
+    });
+  }
+
+  function escapeHtml(s){
+    return s.replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#039;" }[c]));
+  }
+
+  btnShuffle.addEventListener('click', ()=>{
+    const names = parseNames(namesTa.value);
+    if(names.length===0){ alert('Please enter at least one name.'); return; }
+    currentOrder = fisherYates(names);
+    renderList(currentOrder);
+  });
+
+  btnPick.addEventListener('click', ()=>{
+    const names = parseNames(namesTa.value);
+    if((names.length===0) && currentOrder.length===0){ alert('Please enter at least one name.'); return; }
+    // choose from currentOrder if present, else shuffle and pick
+    if(currentOrder.length===0) currentOrder = fisherYates(names);
+    const idx = Math.floor(Math.random()*currentOrder.length);
+    const name = currentOrder[idx];
+    lastPicked.textContent = name;
+    renderList(currentOrder, idx);
+    // small confetti effect (textual)
+    flashPick(idx);
+  });
+
+  btnRotate.addEventListener('click', ()=>{
+    if(currentOrder.length===0){ alert('No current list — use Shuffle or Pick first.'); return; }
+    currentOrder = fisherYates(currentOrder);
+    renderList(currentOrder);
+  });
+
+  btnClear.addEventListener('click', ()=>{
+    if(!confirm('Clear names and results?')) return;
+    namesTa.value = '';
+    currentOrder = [];
+    renderList([]);
+    lastPicked.textContent = '—';
+  });
+
+  btnCopy.addEventListener('click', ()=>{
+    if(currentOrder.length===0){ alert('Nothing to copy — shuffle or pick first.'); return; }
+    const txt = currentOrder.map((n,i)=>`${i+1}. ${n}`).join('\n');
+    navigator.clipboard.writeText(txt).then(()=>{
+      alert('Copied to clipboard');
+    }, ()=>{ alert('Copy failed — your browser may not support clipboard API.'); });
+  });
+
+  btnDownload.addEventListener('click', ()=>{
+    if(currentOrder.length===0){ alert('No results to download — shuffle or pick first.'); return; }
+    const csv = 'Position,Name\n' + currentOrder.map((n,i)=>`${i+1},"${n.replace(/"/g,'""')}"`).join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'randomised-list.csv'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
+
+  btnExportTxt.addEventListener('click', ()=>{
+    if(currentOrder.length===0){ alert('No results to export — shuffle or pick first.'); return; }
+    const txt = currentOrder.map((n,i)=>`${i+1}. ${n}`).join('\n');
+    const blob = new Blob([txt], {type:'text/plain;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'randomised-list.txt'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
+
+  // Quick highlight flash when picking
+  function flashPick(index){
+    const items = resultList.querySelectorAll('.item');
+    if(items.length===0 || index<0 || index>=items.length) return;
+    items.forEach(el=>el.classList.remove('picked'));
+    const el = items[index];
+    el.classList.add('picked');
+    setTimeout(()=>el.classList.remove('picked'),1600);
+  }
+
+  // Allow pressing Ctrl+Enter in textarea to shuffle
+  namesTa.addEventListener('keydown', (e)=>{
+    if(e.ctrlKey && e.key==='Enter'){
+      e.preventDefault(); btnShuffle.click();
+    }
+  });
+
+  // small demo filler for first load (comment out if undesired)
+  // namesTa.value = 'Alice\nBob\nCharlie\nDeepa\nEthan\nFatima';
+</script></body>
+</html>
